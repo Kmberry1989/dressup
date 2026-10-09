@@ -15,6 +15,7 @@ export interface GeneratedLook {
   timestamp: number;
   videoMediaId?: string; 
   videoBase64?: string;
+  isSpread?: boolean;
 }
 export interface UserImage {
   mediaId: string;
@@ -22,12 +23,14 @@ export interface UserImage {
   mimeType: string;
 }
 export type PriceLevel = 'Budget' | 'Standard' | 'Premium';
+export type LookFormat = 'Portrait' | 'Spread';
 export interface AppState {
   userImages: UserImage[];
   currentLook: GeneratedLook | null;
   history: GeneratedLook[];
   items: CosplayItem[];
   priceRange: PriceLevel;
+  lookFormat: LookFormat;
   selectedStores: string[];
   selectedStyle: string;
   selectedHair: string;
