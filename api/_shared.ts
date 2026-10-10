@@ -19,6 +19,8 @@ export const generateLookSchema = z.object({
   hair: z.string().trim().min(1).max(100),
   format: z.enum(['Portrait', 'Spread']),
   aspectRatio: z.enum(['1:1', '16:9', '9:16', '4:3', '3:4']),
+  provider: z.enum(['cloudflare', 'gemini']).default('cloudflare'),
+  clientId: z.string().uuid().optional(),
   images: z.array(inlineImageSchema).max(2),
 });
 
@@ -88,9 +90,9 @@ export function errorResponse(error: unknown): Response {
       { status: 429 },
     );
   }
-  console.error('Gemini request failed', error);
+  console.error('Image provider request failed', error);
   return Response.json(
-    { error: { code: 'PROVIDER_ERROR', message: 'Gemini could not complete this request. Please try again.' } },
+    { error: { code: 'PROVIDER_ERROR', message: 'The image provider could not complete this request. Please try again.' } },
     { status: 502 },
   );
 }

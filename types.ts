@@ -29,6 +29,7 @@ export interface UserImage {
 
 export type PriceLevel = 'Budget' | 'Standard' | 'Premium';
 export type LookFormat = 'Portrait' | 'Spread';
+export type ImageProvider = 'cloudflare' | 'gemini';
 
 export interface AppState {
   userImages: UserImage[];

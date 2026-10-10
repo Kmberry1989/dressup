@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox, FieldDropdown, PillButton, SectionLabel, SegmentedToggle, TextInput } from './components/Primitives';
 import { prepareImage, requestGeneratedLook, requestLookAnalysis } from './src/client';
-import type { AppState, GeneratedLook, LookFormat, PriceLevel, UserImage } from './types';
+import type { AppState, GeneratedLook, ImageProvider, LookFormat, PriceLevel, UserImage } from './types';
 
 const STORE_CATEGORIES = [
   { name: 'Global Marketplaces', stores: ['AliExpress', 'Amazon', 'eBay', 'Etsy', 'Google Shopping', 'Mercari', 'Walmart'] },
@@ -15,6 +15,14 @@ const STYLE_OPTIONS = ['None', 'Avant-Garde', 'Classic Tuxedo', 'Ballroom Gown',
 const HAIR_OPTIONS = ['Original / No Change', 'Sleek Low Bun', 'Hollywood Waves', 'Intricate Braided Crown', 'Sharp Bob', 'Textured High Updo', 'Polished Fade', 'Tapered Curls', 'Chignon', 'Slicked Back', 'Long Glossy Straight'];
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 type ViewMode = 'design' | 'preview' | 'breakdown';
+
+function getClientId(): string {
+  const stored = window.sessionStorage.getItem('cosplay-compass-client-id');
+  if (stored) return stored;
+  const created = crypto.randomUUID();
+  window.sessionStorage.setItem('cosplay-compass-client-id', created);
+  return created;
+}
 
 const initialPrompt = 'Avant-garde high-fashion gala attire for a black-tie event, architectural obsidian silk silhouette with intricate gold metallic embroidery, cinematic red carpet lighting, photorealistic luxury textures.';
 
@@ -35,6 +43,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [prompt, setPrompt] = useState(initialPrompt);
   const [aspectRatio, setAspectRatio] = useState('9:16');
+  const [imageProvider, setImageProvider] = useState<ImageProvider>('cloudflare');
+  const [clientId] = useState(getClientId);
   const [toast, setToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrls = useRef(new Set<string>());
@@ -142,6 +152,8 @@ export default function App() {
         hair: state.selectedHair,
         format: state.lookFormat,
         aspectRatio,
+        provider: imageProvider,
+        clientId,
         images: state.userImages,
       }, timeout.signal);
       const look: GeneratedLook = {
@@ -211,7 +223,7 @@ export default function App() {
       <section aria-label="Design studio" className={`${activeTab === 'design' ? 'flex' : 'hidden lg:flex'} relative z-10 h-[calc(100dvh-76px)] w-full flex-col border-r border-white/5 bg-[#0f0f11]/95 px-4 py-6 shadow-2xl lg:h-full lg:w-[350px]`}>
         <header className="mb-6 flex items-center justify-between border-b border-white/5 pb-5">
           <div>
-            <p className="text-[8px] font-black uppercase tracking-[0.35em] text-[#c2a35d]">Gemini atelier</p>
+            <p className="text-[8px] font-black uppercase tracking-[0.35em] text-[#c2a35d]">AI atelier</p>
             <h1 className="mt-1 text-2xl italic">Cosplay Compass</h1>
           </div>
           <span className="material-symbols-outlined text-3xl text-[#c2a35d]">explore</span>
@@ -255,9 +267,14 @@ export default function App() {
             <FieldDropdown label="Aesthetic Thread" value={state.selectedStyle} options={STYLE_OPTIONS} onChange={(value) => setState((current) => ({ ...current, selectedStyle: value }))} />
             <FieldDropdown label="Grooming Blueprint" value={state.selectedHair} options={HAIR_OPTIONS} onChange={(value) => setState((current) => ({ ...current, selectedHair: value }))} />
             <FieldDropdown label="Aspect Ratio" value={aspectRatio} options={ASPECT_RATIOS} onChange={setAspectRatio} />
+            <div>
+              <p className="mb-1.5 ml-1 text-[8px] font-black uppercase tracking-widest text-[#c2a35d]">Generation provider</p>
+              <SegmentedToggle value={imageProvider} onChange={(value) => setImageProvider(value as ImageProvider)} items={[{ value: 'cloudflare', label: 'Free' }, { value: 'gemini', label: 'Higher Quality' }]} />
+            </div>
             <div className="border border-white/5 bg-black/30 px-3 py-2">
               <p className="text-[8px] font-black uppercase tracking-widest text-[#c2a35d]">Image engine</p>
-              <p className="mt-1 text-[10px] text-white/55">Gemini 3.1 Flash Image · 1K</p>
+              <p className="mt-1 text-[10px] text-white/55">{imageProvider === 'cloudflare' ? 'Cloudflare FLUX.2 Klein · free daily allowance' : 'Gemini 3.1 Flash Lite Image · paid higher quality'}</p>
+              <p className="mt-1 text-[9px] leading-relaxed text-white/30">{imageProvider === 'cloudflare' ? 'Up to 3 requests per minute per browser session. Reference likeness may be looser.' : 'Approximately $0.0336 per successful 1K image.'}</p>
             </div>
           </div>
 
@@ -300,7 +317,7 @@ export default function App() {
         ) : state.currentLook && (
           <div className="group relative max-h-full">
             <div className="absolute -inset-4 -z-10 border border-white/5 bg-gradient-to-b from-white/[0.03] to-transparent" />
-            <img src={state.currentLook.imageUrl} alt="Gemini-generated gala cosplay look" className="max-h-[80vh] max-w-full border border-white/10 object-contain shadow-[0_40px_100px_-20px_rgba(0,0,0,0.9)]" />
+            <img src={state.currentLook.imageUrl} alt="AI-generated gala cosplay look" className="max-h-[80vh] max-w-full border border-white/10 object-contain shadow-[0_40px_100px_-20px_rgba(0,0,0,0.9)]" />
             {state.currentLook.isSpread && <div className="absolute left-4 top-4 bg-[#c2a35d] px-3 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-black">Editorial spread</div>}
             <div className="absolute bottom-4 left-4 flex items-center gap-2 border border-white/10 bg-black/80 px-4 py-2 text-[9px] font-bold uppercase tracking-[0.2em] text-[#c2a35d]">
               <span className="material-symbols-outlined text-base">photo_camera</span>

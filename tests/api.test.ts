@@ -53,8 +53,31 @@ describe('generate-look API', () => {
     );
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: { code: 'PROVIDER_ERROR', message: 'Gemini could not complete this request. Please try again.' },
+      error: { code: 'PROVIDER_ERROR', message: 'The image provider could not complete this request. Please try again.' },
     });
+  });
+
+  it('routes free generation through the configured Cloudflare worker', async () => {
+    process.env.CLOUDFLARE_WORKER_URL = 'https://free.example.workers.dev';
+    process.env.CLOUDFLARE_WORKER_SECRET = 'test-secret';
+    const fetchMock = vi.fn().mockResolvedValue(new Response(Buffer.from(pixel.data, 'base64'), {
+      headers: { 'Content-Type': 'image/png', 'X-Cosplay-Model': 'mock-cloudflare-model' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const response = await handleGenerateLook(jsonRequest('/api/generate-look', {
+        ...generationBody(),
+        provider: 'cloudflare',
+        clientId: 'd9428888-122b-11e1-b85c-61cd3cbb3210',
+      }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Cosplay-Model')).toBe('mock-cloudflare-model');
+      expect(fetchMock).toHaveBeenCalledWith('https://free.example.workers.dev/generate', expect.objectContaining({ method: 'POST' }));
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.CLOUDFLARE_WORKER_URL;
+      delete process.env.CLOUDFLARE_WORKER_SECRET;
+    }
   });
 
   it('explains when Gemini image generation needs paid quota', async () => {
