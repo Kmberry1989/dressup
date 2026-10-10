@@ -3,27 +3,33 @@ export interface CosplayItem {
   description: string;
   searchQuery: string;
   estimatedPrice?: string;
-  material?: string; 
+  material?: string;
   recommendedStore?: string;
-  shopUrl?: string;
+  shopUrl: string;
 }
+
 export interface GeneratedLook {
-  mediaId: string;
-  base64: string;
+  id: string;
+  imageUrl: string;
+  blob: Blob;
   mimeType: string;
   prompt: string;
   timestamp: number;
-  videoMediaId?: string; 
-  videoBase64?: string;
-  isSpread?: boolean;
+  isSpread: boolean;
 }
+
 export interface UserImage {
-  mediaId: string;
-  base64: string;
-  mimeType: string;
+  id: string;
+  previewUrl: string;
+  data: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  width: number;
+  height: number;
 }
+
 export type PriceLevel = 'Budget' | 'Standard' | 'Premium';
 export type LookFormat = 'Portrait' | 'Spread';
+
 export interface AppState {
   userImages: UserImage[];
   currentLook: GeneratedLook | null;
@@ -34,11 +40,9 @@ export interface AppState {
   selectedStores: string[];
   selectedStyle: string;
   selectedHair: string;
-  selectedModel: string;
   searchTerm: string;
   isGenerating: boolean;
   isAnalyzing: boolean;
-  isAnimating: boolean; 
-  workshopStatus: string; 
+  workshopStatus: string;
   error: string | null;
 }

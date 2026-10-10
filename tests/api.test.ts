@@ -1,0 +1,84 @@
+import { describe, expect, it, vi } from 'vitest';
+import { handleAnalyzeLook } from '../api/analyze-look';
+import { buildShoppingUrl } from '../api/_shared';
+import { handleGenerateLook } from '../api/generate-look';
+
+const pixel = {
+  mimeType: 'image/png' as const,
+  data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+};
+
+function jsonRequest(path: string, body: unknown): Request {
+  return new Request(`http://localhost${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function generationBody(images: Array<{ mimeType: 'image/jpeg' | 'image/png' | 'image/webp'; data: string }> = []) {
+  return {
+    prompt: 'Create an elegant celestial gala costume with sculptural tailoring.',
+    style: 'Celestial Couture',
+    hair: 'Hollywood Waves',
+    format: 'Portrait',
+    aspectRatio: '9:16',
+    images,
+  };
+}
+
+describe('generate-look API', () => {
+  it.each([0, 1, 2])('accepts %i reference images and returns binary output', async (count) => {
+    const generate = vi.fn().mockResolvedValue({ ...pixel, model: 'mock-image-model' });
+    const response = await handleGenerateLook(jsonRequest('/api/generate-look', generationBody(Array(count).fill(pixel))), generate);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(response.headers.get('X-Cosplay-Model')).toBe('mock-image-model');
+    expect(generate).toHaveBeenCalledOnce();
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
+
+  it('rejects oversized decoded images', async () => {
+    const oversized = { mimeType: 'image/jpeg' as const, data: Buffer.alloc(1_300_000, 1).toString('base64') };
+    const response = await handleGenerateLook(jsonRequest('/api/generate-look', generationBody([oversized])), vi.fn());
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'IMAGE_TOO_LARGE' } });
+  });
+
+  it('returns a stable provider error without leaking internals', async () => {
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    const response = await handleGenerateLook(
+      jsonRequest('/api/generate-look', generationBody()),
+      vi.fn().mockRejectedValue(new Error('secret provider detail')),
+    );
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'PROVIDER_ERROR', message: 'Gemini could not complete this request. Please try again.' },
+    });
+  });
+});
+
+describe('analyze-look API', () => {
+  const body = { image: pixel, priceLevel: 'Standard', selectedStores: ['Etsy'], format: 'Portrait' };
+
+  it('validates model data and adds an application-owned shopping URL', async () => {
+    const analyze = vi.fn().mockResolvedValue([{ name: 'Gold cape', description: 'A structured metallic cape.', searchQuery: 'structured gold cosplay cape', recommendedStore: 'Etsy' }]);
+    const response = await handleAnalyzeLook(jsonRequest('/api/analyze-look', body), analyze);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ name: 'Gold cape', shopUrl: buildShoppingUrl('structured gold cosplay cape') }],
+    });
+  });
+
+  it('maps malformed provider output to a provider response error', async () => {
+    const response = await handleAnalyzeLook(jsonRequest('/api/analyze-look', body), vi.fn().mockResolvedValue([{ name: '' }]));
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'INVALID_ANALYSIS_RESPONSE' } });
+  });
+});
+
+describe('shopping URL safety', () => {
+  it('always points at an encoded Google Shopping search', () => {
+    expect(buildShoppingUrl('cape & crown')).toBe('https://www.google.com/search?tbm=shop&q=cape%20%26%20crown');
+  });
+});
