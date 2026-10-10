@@ -65,6 +65,29 @@ export function errorResponse(error: unknown): Response {
       { status: 400 },
     );
   }
+  const providerStatus = typeof error === 'object' && error !== null && 'status' in error
+    ? Number((error as { status?: unknown }).status)
+    : undefined;
+  const providerMessage = error instanceof Error ? error.message : '';
+  if (providerStatus === 429 && providerMessage.includes('limit: 0') && providerMessage.includes('image')) {
+    console.error('Gemini image generation requires paid quota', error);
+    return Response.json(
+      {
+        error: {
+          code: 'GEMINI_IMAGE_BILLING_REQUIRED',
+          message: 'Gemini image generation is not available on the free tier. Enable billing for this Google AI project, then try again.',
+        },
+      },
+      { status: 429 },
+    );
+  }
+  if (providerStatus === 429) {
+    console.error('Gemini quota exceeded', error);
+    return Response.json(
+      { error: { code: 'GEMINI_QUOTA_EXCEEDED', message: 'Gemini is temporarily rate-limited. Wait a moment, then try again.' } },
+      { status: 429 },
+    );
+  }
   console.error('Gemini request failed', error);
   return Response.json(
     { error: { code: 'PROVIDER_ERROR', message: 'Gemini could not complete this request. Please try again.' } },

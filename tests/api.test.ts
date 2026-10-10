@@ -56,6 +56,25 @@ describe('generate-look API', () => {
       error: { code: 'PROVIDER_ERROR', message: 'Gemini could not complete this request. Please try again.' },
     });
   });
+
+  it('explains when Gemini image generation needs paid quota', async () => {
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    const providerError = Object.assign(
+      new Error('Quota exceeded. limit: 0, model: gemini-3.1-flash-image'),
+      { status: 429 },
+    );
+    const response = await handleGenerateLook(
+      jsonRequest('/api/generate-look', generationBody()),
+      vi.fn().mockRejectedValue(providerError),
+    );
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'GEMINI_IMAGE_BILLING_REQUIRED',
+        message: 'Gemini image generation is not available on the free tier. Enable billing for this Google AI project, then try again.',
+      },
+    });
+  });
 });
 
 describe('analyze-look API', () => {
