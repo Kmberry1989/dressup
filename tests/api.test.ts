@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleAnalyzeLook } from '../api/analyze-look';
-import { buildShoppingUrl } from '../api/_shared';
+import { buildShoppingUrl, errorResponse } from '../api/_shared';
 import { handleGenerateLook } from '../api/generate-look';
 
 const pixel = {
@@ -122,5 +122,19 @@ describe('analyze-look API', () => {
 describe('shopping URL safety', () => {
   it('always points at an encoded Google Shopping search', () => {
     expect(buildShoppingUrl('cape & crown')).toBe('https://www.google.com/search?tbm=shop&q=cape%20%26%20crown');
+  });
+});
+
+describe('provider availability errors', () => {
+  it('returns an actionable 503 when Gemini is temporarily unavailable', async () => {
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    const response = errorResponse(Object.assign(new Error('high demand'), { status: 503 }));
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'GEMINI_UNAVAILABLE',
+        message: 'Shopping analysis is temporarily busy. Wait a moment, then try again.',
+      },
+    });
   });
 });

@@ -90,6 +90,13 @@ export function errorResponse(error: unknown): Response {
       { status: 429 },
     );
   }
+  if (providerStatus === 503) {
+    console.error('Gemini service temporarily unavailable', error);
+    return Response.json(
+      { error: { code: 'GEMINI_UNAVAILABLE', message: 'Shopping analysis is temporarily busy. Wait a moment, then try again.' } },
+      { status: 503 },
+    );
+  }
   console.error('Image provider request failed', error);
   return Response.json(
     { error: { code: 'PROVIDER_ERROR', message: 'The image provider could not complete this request. Please try again.' } },

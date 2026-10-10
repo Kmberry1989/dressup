@@ -36,7 +36,8 @@ Add your real key to `.env.local`:
 ```dotenv
 GEMINI_API_KEY=your_key_here
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
-GEMINI_TEXT_MODEL=gemini-3.8-flash
+GEMINI_TEXT_MODEL=gemini-3.5-flash-lite
+GEMINI_TEXT_FALLBACK_MODEL=gemini-3.8-flash
 CLOUDFLARE_WORKER_URL=https://cosplay-compass-image-worker.your-subdomain.workers.dev
 CLOUDFLARE_WORKER_SECRET=replace_with_a_random_shared_secret
 ```
@@ -82,7 +83,7 @@ Store the deployed Worker URL in Vercel as `CLOUDFLARE_WORKER_URL`, then redeplo
 
 1. Import this repository into Vercel.
 2. Add `GEMINI_API_KEY`, `CLOUDFLARE_WORKER_URL`, and `CLOUDFLARE_WORKER_SECRET` in Project Settings → Environment Variables.
-3. Optionally override `GEMINI_IMAGE_MODEL` or `GEMINI_TEXT_MODEL`.
+3. Optionally override `GEMINI_IMAGE_MODEL`, `GEMINI_TEXT_MODEL`, or `GEMINI_TEXT_FALLBACK_MODEL`.
 4. Deploy. Vercel detects the Vite build and deploys the files in `api/` as Node.js Functions.
 
 The frontend compresses each input below 1.1 MB. The server independently validates MIME type, decoded size, pixel dimensions, image count, and aggregate size to remain safely below Vercel's function payload limit.

@@ -35,7 +35,8 @@ const itemJsonSchema = {
 export type AnalyzeImage = (input: AnalyzeLookInput) => Promise<unknown>;
 
 export const analyzeWithGemini: AnalyzeImage = async (input) => {
-  const model = process.env.GEMINI_TEXT_MODEL?.trim() || 'gemini-3.8-flash';
+  const model = process.env.GEMINI_TEXT_MODEL?.trim() || 'gemini-3.5-flash-lite';
+  const fallbackModel = process.env.GEMINI_TEXT_FALLBACK_MODEL?.trim() || 'gemini-3.8-flash';
   const selectedStores = input.selectedStores.length
     ? `Recommend only from this allowed store list when possible: ${input.selectedStores.join(', ')}.`
     : 'Use broadly available retailers.';
@@ -45,8 +46,8 @@ export const analyzeWithGemini: AnalyzeImage = async (input) => {
   const prompt = `Create a practical shopping breakdown for this gala cosplay look at the ${input.priceLevel} price tier. ${detailDirection} ${selectedStores} Include clothing, footwear, accessories, materials, and grooming only when visibly relevant. Prices are estimates. Never return URLs. Return concise search-ready item names and queries.`;
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const response = await ai.models.generateContent({
-    model,
+  const requestAnalysis = (selectedModel: string) => ai.models.generateContent({
+    model: selectedModel,
     contents: [{
       role: 'user',
       parts: [
@@ -61,6 +62,17 @@ export const analyzeWithGemini: AnalyzeImage = async (input) => {
       temperature: 0.2,
     },
   });
+  let response;
+  try {
+    response = await requestAnalysis(model);
+  } catch (error) {
+    const status = typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : undefined;
+    if (!fallbackModel || fallbackModel === model || ![404, 429, 503].includes(status ?? 0)) throw error;
+    console.warn('Primary Gemini analysis model unavailable; trying configured fallback.', { model, fallbackModel, status });
+    response = await requestAnalysis(fallbackModel);
+  }
   if (!response.text) throw new ApiError(502, 'NO_ANALYSIS_RETURNED', 'Gemini returned no shopping analysis.');
   try {
     return JSON.parse(response.text);
