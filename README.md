@@ -32,7 +32,7 @@ Add your real key to `.env.local`:
 
 ```dotenv
 GEMINI_API_KEY=your_key_here
-GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
 GEMINI_TEXT_MODEL=gemini-2.5-flash
 ```
 

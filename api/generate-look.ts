@@ -20,7 +20,7 @@ export interface GeneratedImageResult {
 export type GenerateImage = (input: GenerateLookInput, prompt: string) => Promise<GeneratedImageResult>;
 
 export const generateWithGemini: GenerateImage = async (input, prompt) => {
-  const model = process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3.1-flash-image';
+  const model = process.env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3.1-flash-lite-image';
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const response = await ai.models.generateContent({
     model,
