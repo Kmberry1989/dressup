@@ -35,7 +35,7 @@ const itemJsonSchema = {
 export type AnalyzeImage = (input: AnalyzeLookInput) => Promise<unknown>;
 
 export const analyzeWithGemini: AnalyzeImage = async (input) => {
-  const model = process.env.GEMINI_TEXT_MODEL?.trim() || 'gemini-2.5-flash';
+  const model = process.env.GEMINI_TEXT_MODEL?.trim() || 'gemini-3.8-flash';
   const selectedStores = input.selectedStores.length
     ? `Recommend only from this allowed store list when possible: ${input.selectedStores.join(', ')}.`
     : 'Use broadly available retailers.';

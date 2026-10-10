@@ -36,7 +36,7 @@ Add your real key to `.env.local`:
 ```dotenv
 GEMINI_API_KEY=your_key_here
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
-GEMINI_TEXT_MODEL=gemini-2.5-flash
+GEMINI_TEXT_MODEL=gemini-3.8-flash
 CLOUDFLARE_WORKER_URL=https://cosplay-compass-image-worker.your-subdomain.workers.dev
 CLOUDFLARE_WORKER_SECRET=replace_with_a_random_shared_secret
 ```
