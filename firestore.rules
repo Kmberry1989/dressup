@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/history/{historyId} {
+      function ownsPath() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      allow create: if ownsPath() && request.resource.data.ownerId == userId;
+      allow read, delete: if ownsPath();
+      allow update: if ownsPath()
+        && request.resource.data.ownerId == userId;
+    }
+  }
+}

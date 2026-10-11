@@ -6,6 +6,7 @@ export interface CosplayItem {
   material?: string;
   recommendedStore?: string;
   shopUrl: string;
+  tags?: string[];
 }
 
 export interface GeneratedLook {
@@ -16,6 +17,25 @@ export interface GeneratedLook {
   prompt: string;
   timestamp: number;
   isSpread: boolean;
+  historyId?: string;
+}
+
+export interface StoredHistoryEntry {
+  id: string;
+  prompt: string;
+  style: string;
+  hair: string;
+  format: LookFormat;
+  aspectRatio: string;
+  provider: ImageProvider;
+  designMode: DesignMode;
+  createdAt: number;
+  updatedAt: number;
+  mimeType: string;
+  priceLevel?: PriceLevel;
+  selectedStores?: string[];
+  items: CosplayItem[];
+  tags: string[];
 }
 
 export interface UserImage {
@@ -30,6 +50,7 @@ export interface UserImage {
 export type PriceLevel = 'Budget' | 'Standard' | 'Premium';
 export type LookFormat = 'Portrait' | 'Spread';
 export type ImageProvider = 'cloudflare' | 'gemini';
+export type DesignMode = 'original' | 'match-partner';
 
 export interface AppState {
   userImages: UserImage[];
@@ -41,6 +62,7 @@ export interface AppState {
   selectedStores: string[];
   selectedStyle: string;
   selectedHair: string;
+  designMode: DesignMode;
   searchTerm: string;
   isGenerating: boolean;
   isAnalyzing: boolean;

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { User } from 'firebase/auth';
 import { Checkbox, FieldDropdown, PillButton, SectionLabel, SegmentedToggle, TextInput } from './components/Primitives';
 import { prepareImage, requestGeneratedLook, requestLookAnalysis } from './src/client';
-import type { AppState, GeneratedLook, ImageProvider, LookFormat, PriceLevel, UserImage } from './types';
+import { continueWithGoogle, saveCuration, saveLook, startAuth, subscribeToHistory } from './src/history';
+import { googleSignInEnabled } from './src/firebase';
+import type { AppState, GeneratedLook, ImageProvider, LookFormat, PriceLevel, StoredHistoryEntry, UserImage } from './types';
 
 const STORE_CATEGORIES = [
   { name: 'Global Marketplaces', stores: ['AliExpress', 'Amazon', 'eBay', 'Etsy', 'Google Shopping', 'Mercari', 'Walmart'] },
@@ -25,6 +28,7 @@ function getClientId(): string {
 }
 
 const initialPrompt = 'Avant-garde high-fashion gala attire for a black-tie event, architectural obsidian silk silhouette with intricate gold metallic embroidery, cinematic red carpet lighting, photorealistic luxury textures.';
+const matchingPrompt = 'A polished black-tie tuxedo that complements the referenced dress through coordinated color, texture, formality, and subtle accessory accents. Keep the styling sophisticated and let the dress remain the visual lead.';
 
 function errorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') return 'The request timed out. Please try again.';
@@ -46,6 +50,11 @@ export default function App() {
   const [imageProvider, setImageProvider] = useState<ImageProvider>('cloudflare');
   const [clientId] = useState(getClientId);
   const [toast, setToast] = useState<string | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [savedHistory, setSavedHistory] = useState<StoredHistoryEntry[]>([]);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+  const [tagDrafts, setTagDrafts] = useState<Record<number, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrls = useRef(new Set<string>());
   const [state, setState] = useState<AppState>({
@@ -58,6 +67,7 @@ export default function App() {
     selectedStores: allStores,
     selectedStyle: 'High-Fashion Editorial',
     selectedHair: 'Original / No Change',
+    designMode: 'original',
     searchTerm: '',
     isGenerating: false,
     isAnalyzing: false,
@@ -72,11 +82,22 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => startAuth(setFirebaseUser, setSyncError), []);
+
+  useEffect(() => {
+    if (!firebaseUser) {
+      setSavedHistory([]);
+      return;
+    }
+    return subscribeToHistory(firebaseUser.uid, setSavedHistory, setSyncError);
+  }, [firebaseUser]);
+
   useEffect(() => {
     window.render_game_to_text = () => JSON.stringify({
       screen: activeTab,
       coordinateSystem: 'Responsive DOM layout; no gameplay coordinates.',
       references: state.userImages.length,
+      designMode: state.designMode,
       hasGeneratedLook: Boolean(state.currentLook),
       historyCount: state.history.length,
       shoppingItemCount: state.items.length,
@@ -89,8 +110,9 @@ export default function App() {
 
   const filteredItems = useMemo(() => {
     const term = state.searchTerm.trim().toLowerCase();
-    if (!term) return state.items;
-    return state.items.filter((item) => [item.name, item.description, item.material, item.recommendedStore]
+    const indexed = state.items.map((item, index) => ({ item, index }));
+    if (!term) return indexed;
+    return indexed.filter(({ item }) => [item.name, item.description, item.material, item.recommendedStore, ...(item.tags ?? [])]
       .some((value) => value?.toLowerCase().includes(term)));
   }, [state.items, state.searchTerm]);
 
@@ -142,6 +164,10 @@ export default function App() {
       setState((current) => ({ ...current, error: 'Describe the look in at least 10 characters.' }));
       return;
     }
+    if (state.designMode === 'match-partner' && state.userImages.length === 0) {
+      setState((current) => ({ ...current, error: 'Add a clear photo of her dress first so the tux can match it accurately.' }));
+      return;
+    }
     setState((current) => ({ ...current, isGenerating: true, error: null, items: [], workshopStatus: 'Sculpting silhouette...' }));
     if (window.innerWidth < 1024) setActiveTab('preview');
     const timeout = withTimeout(110_000);
@@ -153,6 +179,7 @@ export default function App() {
         format: state.lookFormat,
         aspectRatio,
         provider: imageProvider,
+        designMode: state.designMode,
         clientId,
         images: state.userImages,
       }, timeout.signal);
@@ -162,6 +189,22 @@ export default function App() {
         imageUrl: trackUrl(generated.blob),
         timestamp: Date.now(),
       };
+      if (firebaseUser) {
+        try {
+          look.historyId = await saveLook(firebaseUser.uid, {
+            prompt: look.prompt,
+            style: state.selectedStyle,
+            hair: state.selectedHair,
+            format: state.lookFormat,
+            aspectRatio,
+            provider: imageProvider,
+            designMode: state.designMode,
+            mimeType: look.mimeType,
+          });
+        } catch (historyError) {
+          setSyncError(errorMessage(historyError));
+        }
+      }
       setState((current) => {
         const history = [look, ...current.history].slice(0, 10);
         for (const evicted of current.history.slice(9)) releaseUrl(evicted.imageUrl);
@@ -182,6 +225,13 @@ export default function App() {
     try {
       const items = await requestLookAnalysis(state.currentLook, state.priceRange, state.selectedStores, state.currentLook.isSpread ? 'Spread' : 'Portrait', timeout.signal);
       setState((current) => ({ ...current, items, isAnalyzing: false, workshopStatus: '' }));
+      if (firebaseUser && state.currentLook.historyId) {
+        try {
+          await saveCuration(firebaseUser.uid, state.currentLook.historyId, items, state.priceRange, state.selectedStores);
+        } catch (historyError) {
+          setSyncError(errorMessage(historyError));
+        }
+      }
       if (window.innerWidth < 1024) setActiveTab('breakdown');
       showToast(`${items.length} pieces curated`);
     } catch (error) {
@@ -210,6 +260,63 @@ export default function App() {
     }
   };
 
+  const linkGoogleAccount = async () => {
+    if (isLinkingGoogle) return;
+    setIsLinkingGoogle(true);
+    setSyncError(null);
+    try {
+      const user = await continueWithGoogle(firebaseUser, savedHistory);
+      setFirebaseUser(user);
+      showToast('History connected to Google');
+    } catch (error) {
+      setSyncError(errorMessage(error));
+    } finally {
+      setIsLinkingGoogle(false);
+    }
+  };
+
+  const openSavedEntry = (entry: StoredHistoryEntry) => {
+    const sessionLook = state.history.find((look) => look.historyId === entry.id);
+    setPrompt(entry.prompt);
+    setAspectRatio(entry.aspectRatio);
+    setImageProvider(entry.provider);
+    setState((current) => ({
+      ...current,
+      currentLook: sessionLook ?? current.currentLook,
+      selectedStyle: entry.style,
+      selectedHair: entry.hair,
+      designMode: entry.designMode,
+      lookFormat: entry.format,
+      priceRange: entry.priceLevel ?? current.priceRange,
+      selectedStores: entry.selectedStores ?? current.selectedStores,
+      items: entry.items,
+    }));
+    if (!sessionLook) showToast('Settings and curation restored; image was session-only');
+  };
+
+  const setDesignMode = (mode: AppState['designMode']) => {
+    setState((current) => ({ ...current, designMode: mode, error: null }));
+    if (mode === 'match-partner' && prompt === initialPrompt) setPrompt(matchingPrompt);
+    if (mode === 'original' && prompt === matchingPrompt) setPrompt(initialPrompt);
+  };
+
+  const addItemTag = async (itemIndex: number) => {
+    const tag = (tagDrafts[itemIndex] ?? '').trim().replace(/^#/, '').slice(0, 30);
+    if (!tag) return;
+    const items = state.items.map((item, index) => index === itemIndex
+      ? { ...item, tags: [...new Set([...(item.tags ?? []), tag])] }
+      : item);
+    setState((current) => ({ ...current, items }));
+    setTagDrafts((current) => ({ ...current, [itemIndex]: '' }));
+    if (firebaseUser && state.currentLook?.historyId) {
+      try {
+        await saveCuration(firebaseUser.uid, state.currentLook.historyId, items, state.priceRange, state.selectedStores);
+      } catch (error) {
+        setSyncError(errorMessage(error));
+      }
+    }
+  };
+
   return (
     <main className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-[#09090b] text-[#f5f5f7] lg:flex-row">
       <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_50%_40%,#1a1a1c_0%,#09090b_65%)]" />
@@ -226,17 +333,48 @@ export default function App() {
             <p className="text-[8px] font-black uppercase tracking-[0.35em] text-[#c2a35d]">AI atelier</p>
             <h1 className="mt-1 text-2xl italic">Cosplay Compass</h1>
           </div>
-          <span className="material-symbols-outlined text-3xl text-[#c2a35d]">explore</span>
+          {firebaseUser?.isAnonymous && googleSignInEnabled ? (
+            <button type="button" onClick={() => void linkGoogleAccount()} disabled={isLinkingGoogle || !firebaseUser} className="border border-[#c2a35d]/35 px-3 py-2 text-[8px] font-black uppercase tracking-widest text-[#c2a35d] transition-colors hover:bg-[#c2a35d] hover:text-black disabled:opacity-40">
+              {isLinkingGoogle ? 'Connecting...' : 'Sync with Google'}
+            </button>
+          ) : firebaseUser?.isAnonymous ? (
+            <div className="flex items-center gap-2 text-[#c2a35d]" title="History is saved privately in this browser">
+              <span className="material-symbols-outlined text-xl">lock</span>
+              <span className="text-[8px] font-black uppercase tracking-widest">Private history</span>
+            </div>
+          ) : firebaseUser ? (
+            <div className="flex items-center gap-2" title={firebaseUser.email ?? 'Google account'}>
+              {firebaseUser.photoURL ? <img src={firebaseUser.photoURL} alt="" className="h-8 w-8 rounded-full border border-[#c2a35d]/40" /> : <span className="material-symbols-outlined text-[#c2a35d]">account_circle</span>}
+              <span className="text-[8px] font-black uppercase tracking-widest text-[#c2a35d]">Synced</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-white/30"><span className="material-symbols-outlined animate-pulse text-xl">lock</span><span className="text-[8px] font-black uppercase tracking-widest">Starting history</span></div>
+          )}
         </header>
+
+        {syncError && <div role="status" className="mb-4 flex items-start justify-between gap-3 border border-amber-500/30 bg-amber-950/30 px-3 py-2 text-[9px] leading-relaxed text-amber-100">
+          <span>History sync: {syncError}</span>
+          <button type="button" aria-label="Dismiss sync message" onClick={() => setSyncError(null)}><span className="material-symbols-outlined text-sm">close</span></button>
+        </div>}
 
         <div className="no-scrollbar flex flex-1 flex-col gap-7 overflow-y-auto pb-6">
           <div>
-            <SectionLabel>Inspiration Subjects</SectionLabel>
-            <p className="mb-3 text-[9px] leading-relaxed text-white/35">Optional. Add one adult portrait, or two for a coordinated look.</p>
+            <SectionLabel>Design Goal</SectionLabel>
+            <SegmentedToggle value={state.designMode} onChange={(value) => setDesignMode(value as AppState['designMode'])} items={[{ value: 'original', label: 'Create a Look' }, { value: 'match-partner', label: 'Match Her Dress' }]} />
+            {state.designMode === 'match-partner' && <div className="mt-3 border border-[#c2a35d]/20 bg-[#c2a35d]/5 px-3 py-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#c2a35d]">Her look is already decided</p>
+              <p className="mt-1 text-[9px] leading-relaxed text-white/45">Upload her dress first. The result will show only your coordinating tux—not a couple or a replacement dress.</p>
+            </div>}
+          </div>
+
+          <div>
+            <SectionLabel>{state.designMode === 'match-partner' ? 'Dress Reference' : 'Inspiration Subjects'}</SectionLabel>
+            <p className="mb-3 text-[9px] leading-relaxed text-white/35">{state.designMode === 'match-partner' ? 'Required: her dress photo first. Optional: add your portrait second for likeness.' : 'Optional. Add one adult portrait, or two for a coordinated look.'}</p>
             <div className="grid grid-cols-2 gap-3">
-              {state.userImages.map((image) => (
+              {state.userImages.map((image, index) => (
                 <div key={image.id} className="group relative aspect-square overflow-hidden border border-white/10 bg-[#1a1a1c]">
-                  <img src={image.previewUrl} className="h-full w-full object-cover" alt="Uploaded reference" />
+                  <img src={image.previewUrl} className="h-full w-full object-cover" alt={state.designMode === 'match-partner' ? (index === 0 ? 'Partner dress reference' : 'Your portrait reference') : 'Uploaded reference'} />
+                  {state.designMode === 'match-partner' && <span className="absolute bottom-1 left-1 bg-black/80 px-2 py-1 text-[7px] font-black uppercase tracking-widest text-[#c2a35d]">{index === 0 ? 'Her dress' : 'Your portrait'}</span>}
                   <button type="button" aria-label="Remove reference image" onClick={() => removeUserImage(image.id)} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center border border-[#c2a35d]/30 bg-black/75 text-[#c2a35d] opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                     <span className="material-symbols-outlined text-base">close</span>
                   </button>
@@ -245,7 +383,7 @@ export default function App() {
               {state.userImages.length < 2 && (
                 <button type="button" onClick={() => fileInputRef.current?.click()} className="flex aspect-square flex-col items-center justify-center gap-2 border border-dashed border-white/15 bg-[#1a1a1c] text-white/35 transition-colors hover:border-[#c2a35d]/60 hover:text-[#c2a35d]">
                   <span className="material-symbols-outlined text-3xl">add_photo_alternate</span>
-                  <span className="text-[8px] font-bold uppercase tracking-widest">Add portrait</span>
+                  <span className="px-2 text-center text-[8px] font-bold uppercase tracking-widest">{state.designMode === 'match-partner' ? (state.userImages.length === 0 ? 'Add her dress' : 'Add your portrait') : 'Add portrait'}</span>
                 </button>
               )}
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Choose reference image" onChange={(event) => { const file = event.target.files?.[0]; if (file) void addUserImage(file); }} />
@@ -290,10 +428,31 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {savedHistory.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between">
+                <SectionLabel>Saved History</SectionLabel>
+                <span className="mb-2 text-[7px] font-black uppercase tracking-widest text-white/25">{firebaseUser?.isAnonymous ? 'This browser' : 'Google sync'}</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {savedHistory.slice(0, 12).map((entry) => (
+                  <button type="button" key={entry.id} onClick={() => openSavedEntry(entry)} className="border border-white/5 bg-black/25 px-3 py-3 text-left transition-colors hover:border-[#c2a35d]/40">
+                    <span className="line-clamp-2 text-[10px] leading-relaxed text-white/65">{entry.prompt}</span>
+                    <span className="mt-2 flex flex-wrap items-center gap-2 text-[7px] font-black uppercase tracking-widest text-[#c2a35d]/65">
+                      <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
+                      <span>{entry.items.length} items</span>
+                      {entry.tags.slice(0, 3).map((tag) => <span key={tag} className="border border-[#c2a35d]/20 px-1.5 py-0.5">#{tag}</span>)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <PillButton variant="solid" onClick={() => void generateLook()} disabled={state.isGenerating || state.isAnalyzing} icon={<span className="material-symbols-outlined text-xl">brush</span>}>
-          {state.isGenerating ? 'Rendering...' : `Design ${state.lookFormat === 'Spread' ? 'Full Look' : 'Gala Look'}`}
+          {state.isGenerating ? 'Rendering...' : state.designMode === 'match-partner' ? 'Design My Matching Tux' : `Design ${state.lookFormat === 'Spread' ? 'Full Look' : 'Gala Look'}`}
         </PillButton>
       </section>
 
@@ -306,7 +465,7 @@ export default function App() {
             </div>
             <div>
               <h2 className="text-3xl italic text-white/80">The spotlight is ready.</h2>
-              <p className="mt-3 text-[10px] uppercase leading-loose tracking-[0.2em] text-white/30">Add an optional portrait, shape the concept, then design your gala look.</p>
+              <p className="mt-3 text-[10px] uppercase leading-loose tracking-[0.2em] text-white/30">{state.designMode === 'match-partner' ? 'Add her dress photo, then design a solo tux that belongs beside it.' : 'Add an optional portrait, shape the concept, then design your gala look.'}</p>
             </div>
           </div>
         ) : state.isGenerating ? (
@@ -376,7 +535,7 @@ export default function App() {
           ) : (
             <div className="flex flex-col gap-4 border-t border-white/5 pt-5">
               <p className="text-[8px] font-black uppercase tracking-[0.25em] text-[#c2a35d]">{filteredItems.length} curated pieces</p>
-              {filteredItems.map((item) => (
+              {filteredItems.map(({ item, index }) => (
                 <article key={`${item.name}-${item.searchQuery}`} className="border border-white/5 bg-white/[0.025] p-4">
                   <div className="mb-2 flex items-start justify-between gap-3">
                     <h3 className="text-[12px] font-black uppercase leading-tight">{item.name}</h3>
@@ -384,6 +543,11 @@ export default function App() {
                   </div>
                   {item.recommendedStore && <p className="mb-2 text-[8px] font-bold uppercase tracking-widest text-[#c2a35d]/70">{item.recommendedStore}</p>}
                   <p className="mb-4 text-[10px] leading-relaxed text-white/45">{item.description}</p>
+                  {(item.tags?.length ?? 0) > 0 && <div className="mb-3 flex flex-wrap gap-1.5">{item.tags?.map((tag) => <span key={tag} className="border border-[#c2a35d]/25 bg-[#c2a35d]/5 px-2 py-1 text-[7px] font-black uppercase tracking-wider text-[#c2a35d]">#{tag}</span>)}</div>}
+                  <div className="mb-3 flex gap-2">
+                    <input value={tagDrafts[index] ?? ''} onChange={(event) => setTagDrafts((current) => ({ ...current, [index]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') void addItemTag(index); }} maxLength={30} placeholder="ADD A TAG" aria-label={`Add tag to ${item.name}`} className="min-w-0 flex-1 border border-white/10 bg-black/30 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-white outline-none placeholder:text-white/20 focus:border-[#c2a35d]/50" />
+                    <button type="button" onClick={() => void addItemTag(index)} className="border border-white/10 px-3 text-[8px] font-black uppercase tracking-wider text-white/55 hover:text-[#c2a35d]">Add</button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => void copyText(item.searchQuery, 'Search tag')} className="border border-white/10 bg-black/30 py-2 text-[8px] font-black uppercase tracking-wider text-white/55 hover:text-[#c2a35d]">Copy tag</button>
                     <a href={item.shopUrl} target="_blank" rel="noreferrer" className="border border-[#c2a35d]/25 bg-[#c2a35d]/10 py-2 text-center text-[8px] font-black uppercase tracking-wider text-[#c2a35d] hover:bg-[#c2a35d] hover:text-black">Shop search</a>

@@ -1,4 +1,4 @@
-import type { CosplayItem, GeneratedLook, ImageProvider, LookFormat, PriceLevel, UserImage } from '../types';
+import type { CosplayItem, DesignMode, GeneratedLook, ImageProvider, LookFormat, PriceLevel, UserImage } from '../types';
 
 // FLUX.2 Klein requires each reference edge to be smaller than 512 pixels.
 const MAX_EDGE = 511;
@@ -68,6 +68,7 @@ export interface GenerateLookRequest {
   format: LookFormat;
   aspectRatio: string;
   provider: ImageProvider;
+  designMode: DesignMode;
   clientId: string;
   images: UserImage[];
 }

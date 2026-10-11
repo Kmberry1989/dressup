@@ -98,6 +98,28 @@ describe('generate-look API', () => {
       },
     });
   });
+
+  it('builds a solo tux prompt from the fixed partner-dress reference', async () => {
+    const generate = vi.fn().mockResolvedValue({ ...pixel, model: 'mock-image-model' });
+    const response = await handleGenerateLook(jsonRequest('/api/generate-look', {
+      ...generationBody([pixel]),
+      designMode: 'match-partner',
+    }), generate);
+    expect(response.status).toBe(200);
+    const prompt = generate.mock.calls[0]?.[1] as string;
+    expect(prompt).toContain('first reference image is his partner\'s already-selected dress');
+    expect(prompt).toContain('Do not show the partner');
+    expect(prompt).toContain('solo adult man');
+  });
+
+  it('requires a dress reference for matching-tux mode', async () => {
+    const response = await handleGenerateLook(jsonRequest('/api/generate-look', {
+      ...generationBody(),
+      designMode: 'match-partner',
+    }), vi.fn());
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+  });
 });
 
 describe('analyze-look API', () => {

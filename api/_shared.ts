@@ -20,8 +20,17 @@ export const generateLookSchema = z.object({
   format: z.enum(['Portrait', 'Spread']),
   aspectRatio: z.enum(['1:1', '16:9', '9:16', '4:3', '3:4']),
   provider: z.enum(['cloudflare', 'gemini']).default('cloudflare'),
+  designMode: z.enum(['original', 'match-partner']).default('original'),
   clientId: z.string().uuid().optional(),
   images: z.array(inlineImageSchema).max(2),
+}).superRefine((input, context) => {
+  if (input.designMode === 'match-partner' && input.images.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['images'],
+      message: 'Add a photo of the partner dress before generating a matching tux.',
+    });
+  }
 });
 
 export const analyzeLookSchema = z.object({
@@ -141,7 +150,9 @@ export function validateImages(images: InlineImage[]): void {
 
 export function buildLookPrompt(input: GenerateLookInput): string {
   const sections = [input.prompt];
-  if (input.images.length === 2) sections.unshift('Create a coordinated power-couple portrait using both reference subjects.');
+  if (input.designMode === 'match-partner') {
+    sections.unshift('Generate ONLY a solo adult man wearing a complete formal tuxedo look. The first reference image is his partner\'s already-selected dress: analyze its exact color family, undertone, fabric sheen, embellishment, formality, and visual era, then design a complementary tuxedo that coordinates without copying or competing with it. Do not show the partner, the dress, a woman, a couple, or a split-screen comparison in the output. If a second reference image is present, use it only to preserve the man\'s recognizable features. Show the tux clearly enough to shop every component.');
+  } else if (input.images.length === 2) sections.unshift('Create a coordinated power-couple portrait using both reference subjects.');
   else if (input.images.length === 1) sections.unshift('Preserve the recognizable features of the adult subject in the reference image.');
   if (input.format === 'Spread') {
     sections.unshift('Create a cohesive three-panel editorial spread: full-body look, fabric detail, and accessories detail.');
